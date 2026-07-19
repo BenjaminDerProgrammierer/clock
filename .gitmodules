@@ -1,3 +1,6 @@
 [submodule "libraries/TM1637"]
 	path = libraries/TM1637
 	url = https://github.com/wahlencraft/TM1637-pico/
+[submodule "libraries/ssd1306"]
+	path = libraries/ssd1306
+	url = https://github.com/daschr/pico-ssd1306.git

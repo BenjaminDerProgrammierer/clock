@@ -16,6 +16,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "hardware/i2c.h"
 #include "pico/binary_info.h"
@@ -24,6 +25,7 @@
 
 extern "C" {
 #include <PicoTM1637.h>
+#include "ssd1306.h"
 }
 
 #define CLOCK_FIRMWARE_VERSION "0.0.1"
@@ -35,13 +37,20 @@ extern "C" {
 #define I2C_SCL 7
 #define I2C_BAUDRATE (100 * 1000)
 #define I2C_SCAN_TIMEOUT_US 1000
+#define I2C_WIDTH 128
+#define I2C_HEIGHT 64
+#define I2C_OLED_ADDRESS 0x3C
+
+ssd1306_t disp;
 
 void demo_tm1637();
 int pico_led_init();
 void pico_set_led(bool);
 int pico_tm1637_init();
 int pico_i2c_init();
+int pico_ssd1306_init();
 void bus_scan();
+void animation();
 
 /**
  * @brief Main entry point for the program.
@@ -53,6 +62,7 @@ int main() {
     hard_assert(pico_led_init() == PICO_OK);
     hard_assert(pico_tm1637_init() == PICO_OK);
     hard_assert(pico_i2c_init() == PICO_OK);
+    hard_assert(pico_ssd1306_init() == PICO_OK);
 
     for (int i = 0; i < 5; i++) {
         pico_set_led(true);
@@ -66,6 +76,7 @@ int main() {
     printf("CLK firmware version: %s\n", CLOCK_FIRMWARE_VERSION);
 
     bus_scan();
+    animation();
 
     // void TM1637_display(int number, bool leadingZeros);
     // void TM1637_display_word(char *word, bool leftAlign);
@@ -92,6 +103,12 @@ int pico_tm1637_init() {
     TM1637_init(SEVEN_SEG_CLK_PIN, SEVEN_SEG_DIO_PIN);
     TM1637_clear();
     TM1637_set_brightness(7);  // max value, default is 0
+    return PICO_OK;
+}
+
+int pico_ssd1306_init() {
+    ssd1306_init(&disp, I2C_WIDTH, I2C_HEIGHT, I2C_OLED_ADDRESS, I2C_PORT);
+    ssd1306_clear(&disp);
     return PICO_OK;
 }
 
@@ -212,4 +229,52 @@ void bus_scan() {
         printf(addr % 16 == 15 ? "\n" : "  ");
     }
     printf("Done.\n\n");
+}
+
+
+/**
+ * @brief Demonstrate the functionality of the SSD1306 display.
+ */
+void demo_ssd1306() {
+    const char* words[] = {"SSD1306", "DISPLAY", "DRIVER"};
+    int SLEEPTIME = 10;
+
+    printf("ANIMATION!\n");
+
+    char buf[8];
+
+    while (1) {
+        for (int y = 0; y < 31; ++y) {
+            ssd1306_draw_line(&disp, 0, y, 127, y);
+            ssd1306_show(&disp);
+            sleep_ms(SLEEPTIME);
+            ssd1306_clear(&disp);
+        }
+
+        for (int y = 0, i = 1; y >= 0; y += i) {
+            ssd1306_draw_line(&disp, 0, 31 - y, 127, 31 + y);
+            ssd1306_draw_line(&disp, 0, 31 + y, 127, 31 - y);
+            ssd1306_show(&disp);
+            sleep_ms(SLEEPTIME);
+            ssd1306_clear(&disp);
+            if (y == 32) i = -1;
+        }
+
+        for (int i = 0; i < sizeof(words) / sizeof(char*); ++i) {
+            ssd1306_draw_string(&disp, 8, 24, 2, words[i]);
+            ssd1306_show(&disp);
+            sleep_ms(SLEEPTIME * 20);
+            ssd1306_clear(&disp);
+        }
+
+        for (int y = 31; y < 63; ++y) {
+            ssd1306_draw_line(&disp, 0, y, 127, y);
+            ssd1306_show(&disp);
+            sleep_ms(SLEEPTIME);
+            ssd1306_clear(&disp);
+        }
+
+        ssd1306_show(&disp);
+        sleep_ms(2000);
+    }
 }

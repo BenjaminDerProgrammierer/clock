@@ -35,7 +35,10 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(clock clock.cpp )
+add_executable(clock
+        clock.cpp
+        libraries/ssd1306/ssd1306.c
+)
 
 pico_set_program_name(clock "clock")
 pico_set_program_version(clock "0.1")
@@ -56,6 +59,12 @@ target_include_directories(clock PRIVATE
 # Add any user requested libraries
 include(./libraries/TM1637/PicoTM1637.cmake)
 
+target_include_directories(clock
+    PUBLIC
+        ${CMAKE_CURRENT_LIST_DIR}/libraries/ssd1306
+)
+
+
 target_link_libraries(clock 
         hardware_i2c
         hardware_timer
@@ -65,4 +74,3 @@ target_link_libraries(clock
         )
 
 pico_add_extra_outputs(clock)
-
