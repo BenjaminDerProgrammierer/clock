@@ -1,6 +1,24 @@
+/**
+ * @file clock.cpp
+ * @author Benjamin Hartmann
+ * @brief Main program for the Raspberry Pi Pico clock project.
+ * @version 0.0.1
+ * @date 2026-07-19
+ *
+ * @copyright Copyright (c) 2026 Benjamin Hartmann
+ *
+ * TODO:
+ * - Add SSD1315 OLED display.
+ * - Add DS3231 RTC module.
+ * - add Buzzer for alarm.
+ * - add rotary encoder for setting time and alarm.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "hardware/i2c.h"
+#include "pico/binary_info.h"
 #include "pico/cyw43_arch.h"
 #include "pico/stdlib.h"
 
@@ -12,11 +30,18 @@ extern "C" {
 
 #define SEVEN_SEG_CLK_PIN 2
 #define SEVEN_SEG_DIO_PIN 3
+#define I2C_PORT i2c1
+#define I2C_SDA 6
+#define I2C_SCL 7
+#define I2C_BAUDRATE (100 * 1000)
+#define I2C_SCAN_TIMEOUT_US 1000
 
 void demo_tm1637();
-int pico_led_init(void);
+int pico_led_init();
 void pico_set_led(bool);
-int pico_tm1637_init(void);
+int pico_tm1637_init();
+int pico_i2c_init();
+void bus_scan();
 
 /**
  * @brief Main entry point for the program.
@@ -27,6 +52,7 @@ int main() {
     stdio_init_all();
     hard_assert(pico_led_init() == PICO_OK);
     hard_assert(pico_tm1637_init() == PICO_OK);
+    hard_assert(pico_i2c_init() == PICO_OK);
 
     for (int i = 0; i < 5; i++) {
         pico_set_led(true);
@@ -35,11 +61,11 @@ int main() {
         sleep_ms(100);
     }
 
-    printf("Hello, world!\n");
-
     char title[] = "CLK";
     TM1637_display_word(title, true);
     printf("CLK firmware version: %s\n", CLOCK_FIRMWARE_VERSION);
+
+    bus_scan();
 
     // void TM1637_display(int number, bool leadingZeros);
     // void TM1637_display_word(char *word, bool leftAlign);
@@ -66,6 +92,22 @@ int pico_tm1637_init() {
     TM1637_init(SEVEN_SEG_CLK_PIN, SEVEN_SEG_DIO_PIN);
     TM1637_clear();
     TM1637_set_brightness(7);  // max value, default is 0
+    return PICO_OK;
+}
+
+/**
+ * @brief Initialize the I2C bus.
+ *
+ * @return int status code (0 for success, non-zero for failure)
+ */
+int pico_i2c_init() {
+    i2c_init(I2C_PORT, I2C_BAUDRATE);
+    gpio_set_function(I2C_SCL, GPIO_FUNC_I2C);
+    gpio_set_function(I2C_SDA, GPIO_FUNC_I2C);
+    gpio_pull_up(I2C_SCL);
+    gpio_pull_up(I2C_SDA);
+    // Make the I2C pins available to picotool
+    bi_decl(bi_2pins_with_func(I2C_SDA, I2C_SCL, GPIO_FUNC_I2C));
     return PICO_OK;
 }
 
@@ -126,4 +168,48 @@ void demo_tm1637() {
             TM1637_display_right(seconds, true);
         }
     }
+}
+
+/**
+ * I2C reserves some addresses for special purposes. We exclude these from the
+ * scan. These are any addresses of the form 000 0xxx or 111 1xxx
+ * @param addr The I2C address to check.
+ * @return true if the address is reserved, false otherwise.
+ */
+bool is_reserved_addr(uint8_t addr) {
+    return (addr & 0x78) == 0 || (addr & 0x78) == 0x78;
+}
+
+/**
+ * @brief Sweep through all 7-bit I2C addresses, to see if any slaves are
+ * present on the I2C bus. Print out a table.
+ */
+void bus_scan() {
+    printf("\nI2C Bus Scan\n");
+    printf("   0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F\n");
+
+    for (int addr = 0; addr < (1 << 7); ++addr) {
+        if (addr % 16 == 0) {
+            printf("%02x ", addr);
+        }
+
+        // Perform a 1-byte dummy read from the probe address. If a slave
+        // acknowledges this address, the function returns the number of bytes
+        // transferred. If the address byte is ignored, the function returns
+        // -1.
+
+        // Skip over any reserved addresses.
+        int ret;
+        uint8_t rxdata;
+        if (is_reserved_addr(addr))
+            ret = PICO_ERROR_GENERIC;
+        else {
+            ret = i2c_read_timeout_us(I2C_PORT, addr, &rxdata, 1, false,
+                                      I2C_SCAN_TIMEOUT_US);
+        }
+
+        printf(ret < 0 ? "." : "@");
+        printf(addr % 16 == 15 ? "\n" : "  ");
+    }
+    printf("Done.\n\n");
 }
