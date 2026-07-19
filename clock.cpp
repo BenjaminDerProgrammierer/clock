@@ -1,52 +1,129 @@
 #include <stdio.h>
-#include "pico/stdlib.h"
-#include "hardware/i2c.h"
-#include "hardware/timer.h"
+#include <stdlib.h>
+
 #include "pico/cyw43_arch.h"
+#include "pico/stdlib.h"
 
-// I2C defines
-// This example will use I2C0 on GPIO8 (SDA) and GPIO9 (SCL) running at 400KHz.
-// Pins can be changed, see the GPIO function select table in the datasheet for information on GPIO assignments
-#define I2C_PORT i2c0
-#define I2C_SDA 8
-#define I2C_SCL 9
-
-int64_t alarm_callback(alarm_id_t id, void *user_data) {
-    // Put your timeout handler code in here
-    return 0;
+extern "C" {
+#include <PicoTM1637.h>
 }
 
+#define CLOCK_FIRMWARE_VERSION "0.0.1"
 
+#define SEVEN_SEG_CLK_PIN 2
+#define SEVEN_SEG_DIO_PIN 3
 
+void demo_tm1637();
+int pico_led_init(void);
+void pico_set_led(bool);
+int pico_tm1637_init(void);
 
-int main()
-{
+/**
+ * @brief Main entry point for the program.
+ *
+ * @return int status code (0 for success, non-zero for failure)
+ */
+int main() {
     stdio_init_all();
+    hard_assert(pico_led_init() == PICO_OK);
+    hard_assert(pico_tm1637_init() == PICO_OK);
 
-    // Initialise the Wi-Fi chip
-    if (cyw43_arch_init()) {
-        printf("Wi-Fi init failed\n");
-        return -1;
+    for (int i = 0; i < 5; i++) {
+        pico_set_led(true);
+        sleep_ms(100);
+        pico_set_led(false);
+        sleep_ms(100);
     }
 
-    // I2C Initialisation. Using it at 400Khz.
-    i2c_init(I2C_PORT, 400*1000);
-    
-    gpio_set_function(I2C_SDA, GPIO_FUNC_I2C);
-    gpio_set_function(I2C_SCL, GPIO_FUNC_I2C);
-    gpio_pull_up(I2C_SDA);
-    gpio_pull_up(I2C_SCL);
-    // For more examples of I2C use see https://github.com/raspberrypi/pico-examples/tree/master/i2c
+    printf("Hello, world!\n");
 
-    // Timer example code - This example fires off the callback after 2000ms
-    add_alarm_in_ms(2000, alarm_callback, NULL, false);
-    // For more examples of timer use see https://github.com/raspberrypi/pico-examples/tree/master/timer
+    char title[] = "CLK";
+    TM1637_display_word(title, true);
+    printf("CLK firmware version: %s\n", CLOCK_FIRMWARE_VERSION);
 
-    // Example to turn on the Pico W LED
-    cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
+    // void TM1637_display(int number, bool leadingZeros);
+    // void TM1637_display_word(char *word, bool leftAlign);
+    // void TM1637_display_left(int number, bool leadingZeros);
+    // void TM1637_display_right(int number, bool leadingZeros);
+    // void TM1637_display_both(int leftNumber, int rightNumber, bool
+    // leadingZeros); void TM1637_set_colon(bool on); void
+    // TM1637_set_brightness(int val); void TM1637_clear();
+}
 
+/**
+ * @brief Initialize the Pico LED.
+ *
+ * @return int status code (0 for success, non-zero for failure)
+ */
+int pico_led_init() { return cyw43_arch_init(); }
+
+/**
+ * @brief Initialize the TM1637 display.
+ *
+ * @return int status code (0 for success, non-zero for failure)
+ */
+int pico_tm1637_init() {
+    TM1637_init(SEVEN_SEG_CLK_PIN, SEVEN_SEG_DIO_PIN);
+    TM1637_clear();
+    TM1637_set_brightness(7);  // max value, default is 0
+    return PICO_OK;
+}
+
+/**
+ * @brief Set the state of the Pico LED.
+ *
+ * @param led_on true to turn the LED on, false to turn it off
+ */
+void pico_set_led(bool led_on) {
+    cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, led_on);
+}
+
+/**
+ * @brief Demonstrate the functionality of the TM1637 display.
+ */
+void demo_tm1637() {
+    char demo_word[] = "dEMO";
+    TM1637_display_word(demo_word, true);
+    sleep_ms(2000);
+
+    TM1637_put_4_bytes(1, 0x4f5b06);  // raw bytes for 123
+    sleep_ms(1000);
+    TM1637_set_brightness(0);  // brightness is not updated automatically,
+    TM1637_put_4_bytes(1, 0x4f5b06);  // something new needs to be displayed.
+    sleep_ms(1000);
+
+    TM1637_clear();
+    sleep_ms(500);
+
+    printf("DEMO\n");
+    // Count down from 150 to -50
+    int count = 150;
+    TM1637_display(count, false);
+    sleep_ms(500);
+    while (count >= -50) {
+        TM1637_display(count, false);
+        count--;
+        // The display can not update too often. So even though there is no
+        // sleep, this will take a couple of moments.
+    }
+
+    sleep_ms(1000);
+    TM1637_clear();
+    sleep_ms(500);
+
+    // Demo a clock, by default there will be a colon between the numbers.
+    int seconds = 0;
+    int minutes = 0;
+    TM1637_display_both(minutes, seconds, true);
     while (true) {
-        printf("Hello, world!\n");
         sleep_ms(1000);
+        seconds++;
+        if (seconds == 60) {
+            seconds = 0;
+            minutes++;
+            TM1637_display_both(minutes, seconds, true);
+        } else {
+            TM1637_display_right(seconds, true);
+        }
     }
 }
