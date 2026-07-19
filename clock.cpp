@@ -8,10 +8,8 @@
  * @copyright Copyright (c) 2026 Benjamin Hartmann
  *
  * TODO:
- * - Add SSD1315 OLED display.
  * - Add DS3231 RTC module.
  * - add Buzzer for alarm.
- * - add rotary encoder for setting time and alarm.
  */
 
 #include <stdio.h>
@@ -19,6 +17,7 @@
 #include <string.h>
 
 #include "hardware/i2c.h"
+#include "hardware/sync.h"
 #include "pico/binary_info.h"
 #include "pico/cyw43_arch.h"
 #include "pico/stdlib.h"
@@ -40,8 +39,26 @@ extern "C" {
 #define I2C_WIDTH 128
 #define I2C_HEIGHT 64
 #define I2C_OLED_ADDRESS 0x3C
+#define ROTARY_CLK_PIN 10
+#define ROTARY_DT_PIN 11
+#define ROTARY_SW_PIN 12
+#define ROTARY_COUNTS_PER_DETENT 4
+#define ROTARY_BUTTON_DEBOUNCE_US 20000
 
 ssd1306_t disp;
+
+static volatile int32_t rotary_pending_delta = 0;
+static volatile bool rotary_release_pending = false;
+static uint8_t rotary_previous_state = 0;
+static int8_t rotary_transition_count = 0;
+static uint32_t rotary_last_button_us = 0;
+
+static const int8_t rotary_transition_table[16] = {
+     0, -1,  1,  0,
+     1,  0,  0, -1,
+    -1,  0,  0,  1,
+     0,  1, -1,  0,
+};
 
 void demo_tm1637();
 int pico_led_init();
@@ -49,6 +66,9 @@ void pico_set_led(bool);
 int pico_tm1637_init();
 int pico_i2c_init();
 int pico_ssd1306_init();
+int rotary_encoder_init();
+void handle_rotary_encoder();
+void sleep_with_rotary_encoder(uint32_t duration_ms);
 void bus_scan();
 void animation();
 
@@ -63,6 +83,7 @@ int main() {
     hard_assert(pico_tm1637_init() == PICO_OK);
     hard_assert(pico_i2c_init() == PICO_OK);
     hard_assert(pico_ssd1306_init() == PICO_OK);
+    hard_assert(rotary_encoder_init() == PICO_OK);
 
     for (int i = 0; i < 5; i++) {
         pico_set_led(true);
@@ -106,10 +127,132 @@ int pico_tm1637_init() {
     return PICO_OK;
 }
 
+/**
+ * @brief Initialize and clear the SSD1306 OLED display.
+ *
+ * @return int status code (0 for success, non-zero for failure)
+ */
 int pico_ssd1306_init() {
     ssd1306_init(&disp, I2C_WIDTH, I2C_HEIGHT, I2C_OLED_ADDRESS, I2C_PORT);
     ssd1306_clear(&disp);
     return PICO_OK;
+}
+
+/**
+ * @brief Read the current CLK and DT input state.
+ *
+ * @return The two-bit encoder state, with CLK as the most significant bit.
+ */
+static uint8_t rotary_encoder_state() {
+    const uint32_t pins = gpio_get_all();
+    return (uint8_t)((((pins >> ROTARY_CLK_PIN) & 1u) << 1) |
+                     ((pins >> ROTARY_DT_PIN) & 1u));
+}
+
+/**
+ * @brief Decode rotary transitions and record debounced switch releases.
+ *
+ * @param gpio GPIO pin that generated the interrupt.
+ * @param events Bit mask of GPIO interrupt events.
+ */
+static void rotary_encoder_irq(uint gpio, uint32_t events) {
+    if (gpio == ROTARY_CLK_PIN || gpio == ROTARY_DT_PIN) {
+        const uint8_t new_state = rotary_encoder_state();
+        const uint8_t transition =
+            (uint8_t)((rotary_previous_state << 2) | new_state);
+
+        rotary_transition_count += rotary_transition_table[transition];
+        rotary_previous_state = new_state;
+
+        if (rotary_transition_count >= ROTARY_COUNTS_PER_DETENT) {
+            rotary_pending_delta++;
+            rotary_transition_count = 0;
+        } else if (rotary_transition_count <= -ROTARY_COUNTS_PER_DETENT) {
+            rotary_pending_delta--;
+            rotary_transition_count = 0;
+        }
+    }
+
+    if (gpio == ROTARY_SW_PIN && (events & GPIO_IRQ_EDGE_RISE)) {
+        const uint32_t now = time_us_32();
+        if ((uint32_t)(now - rotary_last_button_us) >=
+            ROTARY_BUTTON_DEBOUNCE_US) {
+            rotary_release_pending = true;
+            rotary_last_button_us = now;
+        }
+    }
+}
+
+/**
+ * @brief Initialize the KY-040 rotary encoder and its push switch.
+ *
+ * CLK, DT, and SW are active-low inputs using the Pico's internal pull-ups.
+ *
+ * @return int status code (0 for success, non-zero for failure)
+ */
+int rotary_encoder_init() {
+    const uint rotary_pins[] = {
+        ROTARY_CLK_PIN,
+        ROTARY_DT_PIN,
+        ROTARY_SW_PIN,
+    };
+
+    for (uint pin : rotary_pins) {
+        gpio_init(pin);
+        gpio_set_dir(pin, GPIO_IN);
+        gpio_pull_up(pin);
+    }
+
+    rotary_previous_state = rotary_encoder_state();
+
+    const uint32_t quadrature_edges =
+        GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL;
+    gpio_set_irq_enabled_with_callback(ROTARY_CLK_PIN, quadrature_edges, true,
+                                       rotary_encoder_irq);
+    gpio_set_irq_enabled(ROTARY_DT_PIN, quadrature_edges, true);
+    gpio_set_irq_enabled(ROTARY_SW_PIN, GPIO_IRQ_EDGE_RISE, true);
+
+    bi_decl(bi_3pins_with_names(ROTARY_CLK_PIN, "Rotary encoder CLK",
+                               ROTARY_DT_PIN, "Rotary encoder DT",
+                               ROTARY_SW_PIN, "Rotary encoder switch"));
+    return PICO_OK;
+}
+
+/**
+ * @brief Report pending rotary encoder events outside interrupt context.
+ */
+void handle_rotary_encoder() {
+    const uint32_t interrupt_state = save_and_disable_interrupts();
+    const int32_t delta = rotary_pending_delta;
+    const bool button_released = rotary_release_pending;
+    rotary_pending_delta = 0;
+    rotary_release_pending = false;
+    restore_interrupts(interrupt_state);
+
+    for (int32_t remaining = delta; remaining > 0; --remaining) {
+        printf("Rotary encoder: +1\n");
+    }
+
+    for (int32_t remaining = delta; remaining < 0; ++remaining) {
+        printf("Rotary encoder: -1\n");
+    }
+
+    if (button_released) {
+        printf("Rotary encoder button released\n");
+    }
+}
+
+/**
+ * @brief Sleep while continuing to dispatch pending rotary encoder events.
+ *
+ * @param duration_ms Sleep duration in milliseconds.
+ */
+void sleep_with_rotary_encoder(uint32_t duration_ms) {
+    const absolute_time_t end = make_timeout_time_ms(duration_ms);
+    while (!time_reached(end)) {
+        handle_rotary_encoder();
+        sleep_ms(1);
+    }
 }
 
 /**
@@ -188,8 +331,11 @@ void demo_tm1637() {
 }
 
 /**
- * I2C reserves some addresses for special purposes. We exclude these from the
- * scan. These are any addresses of the form 000 0xxx or 111 1xxx
+ * @brief Determine whether an I2C address is reserved.
+ *
+ * Reserved addresses have the form 000 0xxx or 111 1xxx and are excluded from
+ * the bus scan.
+ *
  * @param addr The I2C address to check.
  * @return true if the address is reserved, false otherwise.
  */
@@ -235,19 +381,15 @@ void bus_scan() {
 /**
  * @brief Demonstrate the functionality of the SSD1306 display.
  */
-void demo_ssd1306() {
+void animation() {
     const char* words[] = {"SSD1306", "DISPLAY", "DRIVER"};
     int SLEEPTIME = 10;
-
-    printf("ANIMATION!\n");
-
-    char buf[8];
 
     while (1) {
         for (int y = 0; y < 31; ++y) {
             ssd1306_draw_line(&disp, 0, y, 127, y);
             ssd1306_show(&disp);
-            sleep_ms(SLEEPTIME);
+            sleep_with_rotary_encoder(SLEEPTIME);
             ssd1306_clear(&disp);
         }
 
@@ -255,7 +397,7 @@ void demo_ssd1306() {
             ssd1306_draw_line(&disp, 0, 31 - y, 127, 31 + y);
             ssd1306_draw_line(&disp, 0, 31 + y, 127, 31 - y);
             ssd1306_show(&disp);
-            sleep_ms(SLEEPTIME);
+            sleep_with_rotary_encoder(SLEEPTIME);
             ssd1306_clear(&disp);
             if (y == 32) i = -1;
         }
@@ -263,18 +405,18 @@ void demo_ssd1306() {
         for (int i = 0; i < sizeof(words) / sizeof(char*); ++i) {
             ssd1306_draw_string(&disp, 8, 24, 2, words[i]);
             ssd1306_show(&disp);
-            sleep_ms(SLEEPTIME * 20);
+            sleep_with_rotary_encoder(SLEEPTIME * 20);
             ssd1306_clear(&disp);
         }
 
         for (int y = 31; y < 63; ++y) {
             ssd1306_draw_line(&disp, 0, y, 127, y);
             ssd1306_show(&disp);
-            sleep_ms(SLEEPTIME);
+            sleep_with_rotary_encoder(SLEEPTIME);
             ssd1306_clear(&disp);
         }
 
         ssd1306_show(&disp);
-        sleep_ms(2000);
+        sleep_with_rotary_encoder(2000);
     }
 }
