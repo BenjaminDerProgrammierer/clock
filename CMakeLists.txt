@@ -54,11 +54,14 @@ target_include_directories(clock PRIVATE
 )
 
 # Add any user requested libraries
+include(./libraries/TM1637/PicoTM1637.cmake)
+
 target_link_libraries(clock 
         hardware_i2c
         hardware_timer
         pico_cyw43_arch_none
         hardware_pwm
+        PicoTM1637
         )
 
 pico_add_extra_outputs(clock)
