@@ -21,6 +21,7 @@ Total cost: TBD
 
 1. Install Visual Studio Code and the Pico Extension on your computer.
 2. Clone this repository, and open it in Visual Studio Code.
-3. Connect the components according to the circuit diagram above.
-4. Build and upload the program to the Raspberry Pi Pico.
-5. You can now use the clock!
+3. Initialize submodules by running `git submodule update --init --recursive` in the terminal.
+4. Connect the components according to the circuit diagram above.
+5. Build and upload the program to the Raspberry Pi Pico.
+6. You can now use the clock!
