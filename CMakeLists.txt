@@ -58,6 +58,7 @@ target_include_directories(clock PRIVATE
 
 # Add any user requested libraries
 include(./libraries/TM1637/PicoTM1637.cmake)
+add_subdirectory(libraries/ds3231/libraries/ds3231)
 
 target_include_directories(clock
     PUBLIC
@@ -71,6 +72,7 @@ target_link_libraries(clock
         pico_cyw43_arch_none
         hardware_pwm
         PicoTM1637
+        pico_ds3231
         )
 
 pico_add_extra_outputs(clock)
