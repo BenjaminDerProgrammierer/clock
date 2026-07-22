@@ -94,8 +94,7 @@ static size_t melody_note = 0;
 static absolute_time_t melody_note_off_time;
 static absolute_time_t melody_next_note_time;
 
-static const uint16_t alarm_melody[] = {330, 392, 330, 262,
-                                        294, 196, 294, 330};
+static const uint16_t alarm_melody[] = {330, 392, 330, 262, 294, 196, 294, 330};
 
 static const int8_t rotary_transition_table[16] = {
     0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0,
@@ -111,13 +110,11 @@ int rotary_encoder_init();
 void handle_rotary_encoder();
 void sleep_with_rotary_encoder(uint32_t duration_ms);
 void bus_scan();
-void animation(uint32_t wait_time_ms);
 void display_time(const ds3231_data_t* now);
 void print_time(const ds3231_data_t* now);
 void serial_ui_poll();
 void update_alarm(const ds3231_data_t* now);
 bool set_rtc_to_build_time();
-
 
 /**
  * @brief Main entry point for the program.
@@ -127,7 +124,8 @@ bool set_rtc_to_build_time();
 int main() {
     stdio_init_all();
     hard_assert(pico_led_init() == PICO_OK);
-    printf("------- Starting clock firmware version: %s -------\n", CLOCK_FIRMWARE_VERSION);
+    printf("------- Starting clock firmware version: %s -------\n",
+           CLOCK_FIRMWARE_VERSION);
 
     hard_assert(pico_tm1637_init() == PICO_OK);
     hard_assert(pico_i2c_init() == PICO_OK);
@@ -157,7 +155,6 @@ int main() {
     TM1637_display_word(title, true);
 
     bus_scan();
-    animation(5);
 
     printf("Alarm Clock\n");
     printf("Commands: 't' status, 's' settings\n");
@@ -187,7 +184,6 @@ int main() {
 
         sleep_ms(1);
     }
-
 }
 
 /**
@@ -409,46 +405,6 @@ void bus_scan() {
 }
 
 /**
- * @brief Demonstrate the functionality of the SSD1306 display.
- */
-void animation(uint32_t wait_time_ms) {
-    const char* words[] = {"SSD1306", "DISPLAY", "DRIVER"};
-
-    for (int y = 0; y < 31; ++y) {
-        ssd1306_draw_line(&disp, 0, y, 127, y);
-        ssd1306_show(&disp);
-        sleep_with_rotary_encoder(wait_time_ms);
-        ssd1306_clear(&disp);
-    }
-
-    for (int y = 0, direction = 1; y >= 0; y += direction) {
-        ssd1306_draw_line(&disp, 0, 31 - y, 127, 31 + y);
-        ssd1306_draw_line(&disp, 0, 31 + y, 127, 31 - y);
-        ssd1306_show(&disp);
-        sleep_with_rotary_encoder(wait_time_ms);
-        ssd1306_clear(&disp);
-        if (y == 32) direction = -1;
-    }
-
-    for (size_t i = 0; i < sizeof(words) / sizeof(words[0]); ++i) {
-        ssd1306_draw_string(&disp, 8, 24, 2, words[i]);
-        ssd1306_show(&disp);
-        sleep_with_rotary_encoder(wait_time_ms * 20);
-        ssd1306_clear(&disp);
-    }
-
-    for (int y = 31; y < 63; ++y) {
-        ssd1306_draw_line(&disp, 0, y, 127, y);
-        ssd1306_show(&disp);
-        sleep_with_rotary_encoder(wait_time_ms);
-        ssd1306_clear(&disp);
-    }
-
-    ssd1306_show(&disp);
-    sleep_with_rotary_encoder(wait_time_ms);
-}
-
-/**
  * @brief Initialize the piezo buzzer PWM output.
  */
 int buzzer_init() {
@@ -495,8 +451,7 @@ static void stop_alarm() {
 void update_alarm(const ds3231_data_t* now) {
     const bool in_alarm_window =
         now != nullptr && alarm_enabled && now->hours == alarm_hour &&
-        now->minutes == alarm_minute &&
-        now->seconds < alarm_duration_seconds;
+        now->minutes == alarm_minute && now->seconds < alarm_duration_seconds;
 
     if (!in_alarm_window) {
         if (alarm_sounding) stop_alarm();
@@ -533,6 +488,13 @@ void display_time(const ds3231_data_t* now) {
 
     TM1637_display_both(display_hour, now->minutes, true);
     TM1637_set_colon((now->seconds % 2) == 0);
+
+    char date[sizeof("DD.MM.YYYY")];
+    snprintf(date, sizeof(date), "%02u.%02u.%04u", now->date, now->month,
+             2000u + (now->century ? 100u : 0u) + now->year);
+    ssd1306_clear(&disp);
+    ssd1306_draw_string(&disp, 8, 24, 2, date);
+    ssd1306_show(&disp);
 }
 
 static unsigned int full_year(const ds3231_data_t* now) {
@@ -543,15 +505,15 @@ static unsigned int full_year(const ds3231_data_t* now) {
  * @brief Print the clock and alarm status to the configured Pico stdio UART.
  */
 void print_time(const ds3231_data_t* now) {
-    static const char* days[] = {"Monday", "Tuesday", "Wednesday", "Thursday",
+    static const char* days[] = {"Monday", "Tuesday",  "Wednesday", "Thursday",
                                  "Friday", "Saturday", "Sunday"};
     const char* day_name =
         now->day >= 1 && now->day <= 7 ? days[now->day - 1] : "Unknown";
 
     printf("\n--- Status Report ---\n\n");
-    printf("Current time: %04u/%02u/%02u (%s) %02u:%02u:%02u\n",
-           full_year(now), now->month, now->date, day_name, now->hours,
-           now->minutes, now->seconds);
+    printf("Current time: %04u/%02u/%02u (%s) %02u:%02u:%02u\n", full_year(now),
+           now->month, now->date, day_name, now->hours, now->minutes,
+           now->seconds);
 
     datetime_t datetime = {
         .year = (int16_t)full_year(now),
@@ -595,8 +557,7 @@ static uint8_t days_in_month(unsigned int year, uint8_t month) {
 }
 
 static uint8_t day_of_week(unsigned int year, uint8_t month, uint8_t date) {
-    static const uint8_t offsets[] = {0, 3, 2, 5, 0, 3,
-                                      5, 1, 4, 6, 2, 4};
+    static const uint8_t offsets[] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
     unsigned int adjusted_year = year;
     if (month < 3) adjusted_year--;
     const unsigned int sunday_based =
@@ -640,8 +601,8 @@ static bool configure_rtc(unsigned int year, uint8_t month, uint8_t date,
     const uint8_t clear_oscillator_stop[] = {DS3231_CONTROL_STATUS_REG, status};
     return i2c_write_blocking(I2C_PORT, I2C_DS3231_ADDRESS,
                               clear_oscillator_stop,
-                              sizeof(clear_oscillator_stop), false) ==
-           (int)sizeof(clear_oscillator_stop);
+                              sizeof(clear_oscillator_stop),
+                              false) == (int)sizeof(clear_oscillator_stop);
 }
 
 /**
@@ -663,8 +624,7 @@ bool set_rtc_to_build_time() {
 
     const char* month_position = strstr(month_names, month_name);
     if (month_position == nullptr) return false;
-    const uint8_t month =
-        (uint8_t)((month_position - month_names) / 3 + 1);
+    const uint8_t month = (uint8_t)((month_position - month_names) / 3 + 1);
     return configure_rtc(year, month, (uint8_t)date, (uint8_t)hour,
                          (uint8_t)minute, (uint8_t)second);
 }

@@ -1,21 +1,23 @@
 # Raspberry Pi Pico Clock
 
 ![Circuit](circuit_image.svg)
+![Picture](picture.jpg)
 
-<!-- TODO: Picture; TODO: Video Demo -->
+[Demo Video](https://cdn.hackclub.com/019f8b51-9054-7245-af8b-34d2946238d0/vid_20260722_210821007.mp4)
+
+<!-- TODO: Video Demo -->
 
 ## Bill of Materials
 
-<!-- TODO: Add prices and better descriptions -->
+* Raspberry Pi Pico WH - ca. €7
+* DS3231 RTC Module - ca. €2
+* TM1637 4-Digit 7-Segment Display Module - ca. €2
+* Buzzer - ca. €2
+* Rotary Encoder - ca. €2
+* 0.96" OLED Display - ca. €2
+* Jumper Wires and Breadboard - ca. €5
 
-* Raspberry Pi Pico
-* DS3231 RTC Module
-* 4-Digit 7-Segment Display Module
-* Buzzer
-* Rotary Encoder
-* OLED Display Module
-
-Total cost: TBD
+Total cost: ca. €20
 
 ## How to use
 

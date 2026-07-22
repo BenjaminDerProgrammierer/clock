@@ -18,3 +18,9 @@
 * Added buzzer
 * Combined all modules into a prototype clock program
 * Did circuit design <https://lapse.hackclub.com/timelapse/yujW8PHx05iA>
+
+## Wednesday, 2026-07-22
+
+* Added Required README contents, images, BOM
+* Added demo video to README
+* Added date display to OLED
